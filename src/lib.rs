@@ -78,22 +78,39 @@
 #![deny(clippy::missing_inline_in_public_items)]
 
 extern crate bare_metal;
-extern crate volatile_register;
 
 #[macro_use]
 mod call_asm;
-#[macro_use]
-mod macros;
 
 pub mod asm;
-#[cfg(armv8m)]
-pub mod cmse;
-pub mod delay;
-pub mod interrupt;
-#[cfg(all(not(armv6m), not(armv8m_base)))]
-pub mod itm;
-pub mod peripheral;
-pub mod prelude;
-pub mod register;
 
-pub use crate::peripheral::Peripherals;
+extern "C" {
+    // These symbols come from `link.ld`
+    static mut __sbss: u32;
+    static mut __ebss: u32;
+
+    static mut __sdata: u32;
+    static mut __edata: u32;
+    static __sidata: u32;
+
+    /// User entry point.
+    fn main() -> !;
+}
+
+#[doc(hidden)]
+#[export_name = "RustEntry"]
+pub unsafe extern "C" fn rust_entry() -> ! {
+    // Initialize RAM
+    r0::zero_bss(&mut __sbss, &mut __ebss);
+    r0::init_data(&mut __sdata, &mut __edata, &__sidata);
+
+    main();
+}
+
+#[doc(hidden)]
+#[export_name = "DefaultHandler_"]
+pub unsafe extern "C" fn default_handler() -> ! {
+    loop {
+        asm::breakpoint();
+    }
+}

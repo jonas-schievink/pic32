@@ -4,6 +4,7 @@
 //!
 //! Also see the docs in `asm.rs`.
 
+use object::{ObjectSymbol, SectionKind};
 use object::{
     read::{Object as _, ObjectSection as _},
     write::{Object, Symbol, SymbolSection},
@@ -45,13 +46,18 @@ fn trim_panic_handler(obj_file: &str) {
     let obj = object::File::parse(&objdata).unwrap();
 
     let mut writer = Object::new(obj.format(), obj.architecture(), obj.endianness());
+
+    // We need to preserve `e_flags`, or the resulting object file will look like it uses the wrong
+    // ABI.
+    writer.flags = obj.flags();
+
     for (sec_index, section) in obj.sections().enumerate() {
         assert_eq!(section.index().0, sec_index);
 
         let name = section.name().unwrap();
         if name.starts_with(".ARM")
             || name.starts_with(".rel.ARM")
-            || name.contains("cortex_m_asm_panic")
+            || name.contains("panic_handler_unreachable")
             || name == ".strtab"
             || name == ".symtab"
         {
@@ -59,6 +65,16 @@ fn trim_panic_handler(obj_file: &str) {
             // symbol. They aren't used either way. We also drop `.strtab` and `.symtab` since they
             // otherwise end up having the wrong section type. The object crate should rebuild any
             // index tables when writing the file.
+            continue;
+        }
+
+        if section.kind().is_bss() {
+            // We can't store any data in `.bss`-like sections.
+            continue;
+        }
+
+        if let SectionKind::Unknown = section.kind() {
+            // `object` will complain when writing unknown sections, so discard those.
             continue;
         }
 
@@ -78,7 +94,7 @@ fn trim_panic_handler(obj_file: &str) {
         writer.append_section_data(sec_id, section.data().unwrap(), align);
 
         // Import all symbols from the section.
-        for (_sym_idx, symbol) in obj.symbols() {
+        for symbol in obj.symbols() {
             if symbol.section_index() == Some(section.index()) {
                 writer.add_symbol(Symbol {
                     name: symbol.name().unwrap_or("").as_bytes().to_vec(),
@@ -188,19 +204,7 @@ fn assemble(target: &str, cfgs: &[&str]) {
 
 // `--target` -> `--cfg` list (mirrors what `build.rs` does).
 static TARGETS: &[(&str, &[&str])] = &[
-    ("thumbv6m-none-eabi", &[]),
-    ("thumbv7m-none-eabi", &["armv7m"]),
-    ("thumbv7em-none-eabi", &["armv7m", "armv7em"]),
-    ("thumbv7em-none-eabihf", &["armv7m", "armv7em", "has_fpu"]),
-    ("thumbv8m.base-none-eabi", &["armv8m", "armv8m_base"]),
-    (
-        "thumbv8m.main-none-eabi",
-        &["armv7m", "armv8m", "armv8m_main"],
-    ),
-    (
-        "thumbv8m.main-none-eabihf",
-        &["armv7m", "armv8m", "armv8m_main", "has_fpu"],
-    ),
+    ("mipsel-unknown-none", &[]),
 ];
 
 pub fn install_targets(targets: &mut dyn Iterator<Item = &str>, toolchain: Option<&str>) {
@@ -233,10 +237,12 @@ pub fn assemble_blobs() {
         assert!(status.success(), "rustup command failed: {:?}", rustup);
     }
 
-    install_targets(
-        &mut TARGETS.iter().map(|(target, _)| *target),
-        Some(&*toolchain),
-    );
+    if cfg!(never) {
+        install_targets(
+            &mut TARGETS.iter().map(|(target, _)| *target),
+            Some(&*toolchain),
+        );
+    }
 
     for (target, cfgs) in TARGETS {
         println!("building artifacts for {}", target);

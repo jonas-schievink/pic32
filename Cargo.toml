@@ -8,34 +8,30 @@ description = "Low level access to Cortex-M processors"
 documentation = "https://docs.rs/cortex-m"
 keywords = ["arm", "cortex-m", "register", "peripheral"]
 license = "MIT OR Apache-2.0"
-name = "cortex-m"
+name = "pic32"
 readme = "README.md"
 repository = "https://github.com/rust-embedded/cortex-m"
 version = "0.6.2"
 edition = "2018"
-links = "cortex-m"  # prevent multiple versions of this crate to be linked together
+links = "pic32"  # prevent multiple versions of this crate to be linked together
 
 [dependencies]
-bare-metal = { version = "0.2.0", features = ["const-fn"] }
-volatile-register = "0.2.0"
+r0 = "1.0.0"
+bare-metal = "1.0.0"
 bitfield = "0.13.2"
 embedded-hal = "0.2.4"
 
 [features]
-cm7-r0p1 = []
 inline-asm = []
 linker-plugin-lto = []
 
 [workspace]
-members = ["xtask", "cortex-m-semihosting", "panic-semihosting"]
+members = ["xtask"]
 
 [package.metadata.docs.rs]
 targets = [
-    "thumbv8m.main-none-eabihf",
-    "thumbv6m-none-eabi",
-    "thumbv7em-none-eabi",
-    "thumbv7em-none-eabihf",
-    "thumbv7m-none-eabi",
-    "thumbv8m.base-none-eabi",
-    "thumbv8m.main-none-eabi"
+    "mipsel-unknown-none"
 ]
+
+[patch.crates-io]
+object = { path = "../object" }

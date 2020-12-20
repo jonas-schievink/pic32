@@ -1,0 +1,10 @@
+[alias]
+xtask = "run --package xtask --bin xtask --"
+
+[target.'cfg(target_os = "none")']
+runner = "gdb-multiarch -q"
+
+rustflags = [
+  "-C", "link-arg=-Tlink.ld",
+  "-C", "linker=lld",
+]

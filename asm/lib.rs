@@ -30,7 +30,7 @@
 //!
 //! [linker plugin LTO]: https://doc.rust-lang.org/stable/rustc/linker-plugin-lto.html
 
-#![feature(asm)]
+#![feature(asm, naked_functions)]
 #![no_std]
 #![crate_type = "staticlib"]
 #![deny(warnings)]
@@ -53,72 +53,41 @@ macro_rules! shims {
 }
 
 shims! {
-    fn __bkpt();
-    fn __control_r() -> u32;
-    fn __control_w(w: u32);
-    fn __cpsid();
-    fn __cpsie();
-    fn __delay(cyc: u32);
-    fn __dmb();
-    fn __dsb();
-    fn __isb();
-    fn __msp_r() -> u32;
-    fn __msp_w(val: u32);
     fn __nop();
-    fn __primask_r() -> u32;
-    fn __psp_r() -> u32;
-    fn __psp_w(val: u32);
-    fn __sev();
-    fn __udf();
-    fn __wfe();
-    fn __wfi();
-    fn __syscall(nr: u32, arg: u32) -> u32;
+    fn __wait();
+    fn __break();
 }
 
-// v7m *AND* v8m.main, but *NOT* v8m.base
-#[cfg(any(armv7m, armv8m_main))]
-shims! {
-    fn __basepri_max(val: u8);
-    fn __basepri_r() -> u8;
-    fn __basepri_w(val: u8);
-    fn __faultmask_r() -> u32;
-    fn __enable_icache();
-    fn __enable_dcache();
+/// Primary entry point to all bare-metal PIC32 apps.
+/// 
+/// See "2.6 MCU Initialization" in the PIC32MX Family Data Sheet for more information.
+/// 
+/// This is part of the assembly stubs because it uses inline assembly to set the stack pointer,
+/// and it must be a naked function (since the stack is not usable).
+#[no_mangle]
+#[naked]
+pub unsafe extern "C" fn Reset() -> ! {
+    asm!(
+        // Initialize Global Pointer and Frame Pointer as zero.
+        "move $gp, $zero",
+        "move $fp, $zero",
+
+        // The initial stack pointer value is provided by the linker script and depends on the
+        // memory layout.
+        "li $sp, _stack_start",
+
+        // Jump to the Rust entry point, which will perform the remaining early initialization
+        // (like copying `.data` and clearing `.bss` regions).
+        "j RustEntry",
+
+        options(noreturn)
+    );
 }
 
-#[cfg(armv7em)]
-shims! {
-    fn __basepri_max_cm7_r0p1(val: u8);
-    fn __basepri_w_cm7_r0p1(val: u8);
-}
-
-// Baseline and Mainline.
-#[cfg(armv8m)]
-shims! {
-    fn __tt(target: u32) -> u32;
-    fn __ttt(target: u32) -> u32;
-    fn __tta(target: u32) -> u32;
-    fn __ttat(target: u32) -> u32;
-    fn __msp_ns_r() -> u32;
-    fn __msp_ns_w(val: u32);
-    fn __bxns(val: u32);
-}
-
-// Mainline only.
-#[cfg(armv8m_main)]
-shims! {
-    fn __msplim_r() -> u32;
-    fn __msplim_w(val: u32);
-    fn __psplim_r() -> u32;
-    fn __psplim_w(val: u32);
-}
-
-// All targets with FPU.
-#[cfg(has_fpu)]
-shims! {
-    fn __fpscr_r() -> u32;
-    fn __fpscr_w(val: u32);
-}
+#[doc(hidden)]
+#[link_section = ".vector_table.reset_vector"]
+#[no_mangle]
+pub static __RESET_VECTOR: unsafe extern "C" fn() -> ! = Reset;
 
 /// We *must* define a panic handler here, even though nothing here should ever be able to panic.
 ///
@@ -126,6 +95,7 @@ shims! {
 /// handler gets linked in, this causes a linker error. We always build this file with optimizations
 /// enabled, but even without them the panic handler should never be linked in.
 #[panic_handler]
+#[link_section = "panic_handler_unreachable"]
 fn panic(_: &core::panic::PanicInfo) -> ! {
     extern "C" {
         #[link_name = "cortex-m internal error: panic handler not optimized out, please file an \
