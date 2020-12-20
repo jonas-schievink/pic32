@@ -8,3 +8,9 @@ rustflags = [
   "-C", "link-arg=-Tlink.ld",
   "-C", "linker=lld",
 ]
+
+[build]
+target = "mipsel-unknown-none"
+
+[unstable]
+build-std = ["core"]
